@@ -1,0 +1,174 @@
+---
+title: "Untitled"
+author: "11812532 LuoYiling"
+date: "2020/12/23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# import dataset
+```{r}
+library(readr)
+heart <- read_csv("heart_cleveland_upload.csv")
+heart_trans <- read_csv("heart_cleveland_upload.csv")
+```
+
+```{r}
+library(ggcorrplot)
+cor_heart <- cor(heart_trans[,1:14])
+cor_heart
+ggcorrplot(cor_heart,lab = F)
+```
+
+# transition
+```{r}
+ library(dbplyr)
+ library(dplyr)
+ library(plyr)
+heart_trans <- heart_trans %>% 
+  mutate(sex = if_else(sex == 1, "1-MALE", "0-FEMALE"),
+         fbs = if_else(fbs == 1, ">120", "<=120"),
+         exang = if_else(exang == 1, "YES", "NO"),
+         cp = if_else(cp == 0, "0-typical angina",
+                      if_else(cp == 1, "1-atypical angina", if_else(cp == 2, "2-non-anginal pain", "3-asymptomatic"))),
+         restecg = if_else(restecg == 0, "0-NORMAL",
+                           if_else(restecg == 1, "1-ABNORMALITY", "2-PROBABLE OR DEFINITE")),
+         slope = if_else(slope == 0, "0-upsloping",
+                           if_else(slope == 1, "1-flat", "2-downsloping")),
+         ca = as.factor(ca),
+         thal  = if_else(ca == 0, "0-normal",
+                           if_else(ca == 1, "1-flxed defect", "2-reversable defect", "3")),
+    
+         condition = if_else(condition == 1, "YES", "NO")
+         ) %>% 
+  mutate_if(is.character, as.factor) %>% 
+  dplyr::select(condition, sex, fbs, exang, cp, restecg, slope, ca, thal, everything())
+```
+
+# the number of the condition
+```{r}
+attach(heart_trans)
+ library(ggplot2)
+ggplot(heart_trans, aes(x=condition, fill=condition)) + 
+  geom_bar() +
+  xlab("Heart Disease") +
+  ylab("Count")
+```
+
+# histgram age & condition
+```{r}
+  ggplot(heart_trans, aes(x=age,fill=condition))+
+  geom_histogram()+
+  scale_x_discrete() +
+#    scale_fill_brewer(palette = "Blues") +
+  xlab("Age") + 
+  ylab("Number")+
+  guides(fill = guide_legend(title = "Condition"))
+
+  ggplot(heart_trans, aes(x=trestbps,fill=condition))+
+  geom_histogram()+
+  scale_x_discrete() +
+#    scale_fill_brewer(palette = "Blues") +
+  xlab("trestbps") + 
+  ylab("Number")+
+  guides(fill = guide_legend(title = "Condition"))
+  
+    ggplot(heart_trans, aes(x=thalach,fill=condition))+
+  geom_histogram()+
+  scale_x_discrete() +
+#    scale_fill_brewer(palette = "Blues") +
+  xlab("thalach") + 
+  ylab("Number")+
+  guides(fill = guide_legend(title = "Condition"))
+```
+
+```{r}
+  ggplot(heart_trans, aes(x=slope,y=oldpeak,color=condition))+
+  geom_point(alpha=0.7)+xlab("oldpeak") +
+  ylab("slope")+
+  guides(fill = guide_legend(title = ""))
+```
+
+```{r}
+heart_trans %>%
+  ggplot(aes(x=condition,y=chol))+
+  geom_boxplot(fill="#D55E00")+
+  xlab("Condition")+
+  ylab("Chol")
+
+heart_trans %>%
+  ggplot(aes(x=condition,y=thalach))+
+  geom_boxplot(fill="#D55E00")+
+  xlab("Condition")+
+  ylab("thalach")
+
+heart_trans %>%
+  ggplot(aes(x=condition,y=oldpeak))+
+  geom_boxplot(fill="#D55E00")+
+  xlab("Condition")+
+  ylab("oldpeak")
+```
+
+```{r}
+library(lmPerm)
+library(multcomp)
+set.seed(2077)
+
+fit=aovp(condition~chol, data = heart, perm="Prob")
+summary(fit)
+
+fit=aovp(condition~thalach, data = heart, perm="Prob")
+summary(fit)
+
+fit=aovp(condition~oldpeak, data = heart, perm="Prob")
+summary(fit)
+```
+
+
+```{r}
+ggplot() + geom_bar(data = heart_trans,aes(x = thal, fill=factor(condition)), position="dodge")
+
+ggplot() + geom_bar(data = heart_trans,aes(x = cp, fill=factor(condition)), position="dodge")
+
+ggplot() + geom_bar(data = heart_trans,aes(x = ca, fill=factor(condition)), position="dodge")
+
+ggplot() + geom_bar(data = heart_trans,aes(x = sex, fill=factor(condition)), position="dodge")
+
+ggplot() + geom_bar(data = heart_trans,aes(x = fbs, fill=factor(condition)), position="dodge")
+
+ggplot() + geom_bar(data = heart_trans,aes(x = restecg, fill=factor(condition)), position="dodge")
+
+ggplot() + geom_bar(data = heart_trans,aes(x = exang, fill=factor(condition)), position="dodge")
+
+ggplot() + geom_bar(data = heart_trans,aes(x = slope, fill=factor(condition)), position="dodge")
+```
+
+```{r}
+ggplot(heart_trans, aes(x = age, y = thalach, color = condition, shape = condition))+
+  geom_point()+
+  geom_smooth(se = FALSE)
+```
+
+
+```{r}
+data1 <- heart_trans[(heart_trans$condition == "YES" & heart_trans$exang == "NO"), c("cp")]
+data2 <- heart_trans[(heart_trans$condition == "YES" & heart_trans$exang == "YES"), c("cp")]
+data3 <- heart_trans[(heart_trans$condition == "NO" & heart_trans$exang == "NO"), c("cp")]
+data4 <- heart_trans[(heart_trans$condition == "NO" & heart_trans$exang == "YES"), c("cp")]
+grid.arrange(
+  ggplot() + geom_bar(data = data1,aes(x = cp), fill = c("#6495ED","#FFA500","#FF4500", "red3")) + 
+    ggtitle("People with Heart Disease and exang = 0") + ylim(0,70)+ theme(axis.text.x = element_text(angle = 45, hjust = 1)) + theme(plot.title = element_text(hjust = 0.5,size = 10, face = "bold")),
+ggplot() + geom_bar(data = data2,aes(x = cp), fill = c("#6495ED","#FFA500","#FF4500", "red3")) + ggtitle("People with Heart Disease and exang = 1") + ylim(0,70)+ theme(axis.text.x = element_text(angle = 45, hjust = 1))+ theme(plot.title = element_text(hjust = 0.5,size = 10, face = "bold")),
+ncol = 2)
+
+grid.arrange(
+ggplot() + geom_bar(data = data3,aes(x = cp), fill = c("#6495ED","#FFA500","#FF4500", "red3")) + ggtitle("People without Heart Disease and exang = 0") + ylim(0,70)+ theme(axis.text.x = element_text(angle = 45, hjust = 1))+ theme(plot.title = element_text(hjust = 0.5,size = 10, face = "bold")),
+ggplot() + geom_bar(data = data4,aes(x = cp) , fill = c("#6495ED","#FFA500","#FF4500", "red3")) + ggtitle("People without Heart Disease and exang = 1") + ylim(0,70)+ theme(axis.text.x = element_text(angle = 45, hjust = 1))+ theme(plot.title = element_text(hjust = 0.5,size = 10, face = "bold")),
+ncol = 2)
+```
+
+adv:1.Having fault tolerance 2. Have higher accuracy while facing big data
+dis:1.Unexplained behavior of the network

@@ -1,0 +1,641 @@
+---
+title: "Heart Disease"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+setwd(normalizePath("."))
+library(car) 
+library(DT)
+library(flextable)
+library(tidyverse)
+library(dslabs)
+library(dplyr)
+library(caret)
+library(lubridate)
+library(tidytext)
+library("RColorBrewer")
+library(randomForest)
+library(tictoc)
+library(e1071)
+library(ggpubr)
+
+```
+
+```{r}
+heart = read.csv("heart_cleveland_upload.csv")
+is.null(heart)
+names(heart)[ncol(heart)]="target"
+datatable(heart)
+heart_latent = heart
+heart_latent$cp1 = as.numeric(heart$cp ==1)
+heart_latent$cp2 = as.numeric(heart$cp ==2)
+heart_latent$cp3 = as.numeric(heart$cp ==3)
+heart_latent$restecg1 = as.numeric(heart$restecg ==1)
+heart_latent$restecg2 = as.numeric(heart$restecg ==2)
+heart_latent$slope1 = as.numeric(heart$slope ==1)
+heart_latent$slope2 = as.numeric(heart$slope ==2)
+heart_latent$ca1 = as.numeric(heart$ca ==1)
+heart_latent$ca2 = as.numeric(heart$ca ==2)
+heart_latent$ca3 = as.numeric(heart$ca ==3)
+heart_latent$thal1 = as.numeric(heart$thal ==1)
+heart_latent$thal2 = as.numeric(heart$thal ==2)
+heart_latent = subset(heart_latent, select = -c(cp,restecg,slope,ca,thal))
+heart_latent$target = as.factor(heart_latent$target)
+levels(heart_latent$target) =make.names(c("target","target"),unique = T)
+
+```
+
+1.1 Data explaination:
+* age: The person's age in years
+* sex: The person's sex (1 = male, 0 = female)
+* cp: The chest pain experienced (Value 1: typical angina, Value 2: atypical angina, Value 3: non-anginal pain, Value 4: asymptomatic)
+* trestbps: The person's resting blood pressure (mm Hg on admission to the hospital)
+* chol: The person's cholesterol measurement in mg/dl
+* fbs: The person's fasting blood sugar (> 120 mg/dl, 1 = true; 0 = false)
+* restecg: Resting electrocardiographic measurement (0 = normal, 1 = having ST-T wave abnormality, 2 = showing probable or definite left ventricular hypertrophy by Estes' criteria)
+* thalach: The person's maximum heart rate achieved
+* exang: Exercise induced angina (1 = yes; 0 = no)
+* oldpeak: ST depression induced by exercise relative to rest ('ST' relates to positions on the ECG plot.)
+* slope: the slope of the peak exercise ST segment (Value 1: upsloping, Value 2: flat, Value 3: downsloping)
+* ca: The number of major vessels (0-3)
+* thal: A blood disorder called thalassemia (3 = normal; 6 = fixed defect; 7 = reversable defect)
+* target: Heart disease (0 = no, 1 = yes) 
+
+
+1.2 Grouping the factors:
+  1)Unchangable: increasing age, male gender and heredity(thalassemia).
+  2)Modifiable: Smoking, high cholesterol, high blood pressure, physical inactivity, and being overweight and having diabetes
+  3)Prior: high cholesterol, high blood pressure, diabetes, weight, family history and smoking
+
+
+
+2 Model
+```{r}
+# Set partation: 
+# train set: train_set
+# Validation set: validation
+set.seed("2077", sample.kind = "Rounding")
+# Divide into train and validation dataset
+test_index <- createDataPartition(y = heart_latent$target, times = 1, p = 0.8, list= FALSE)
+temp = heart_latent[-test_index,]
+validation_index = createDataPartition(y= temp$target, times = 1, p = 0.5, list = FALSE)
+train_set <- heart_latent[test_index, ]
+validation <- temp[validation_index, ]
+test = temp[-validation_index,]
+
+# Converting the dependent variables to factors
+train_set$target <- as.factor(train_set$target)
+validation$target <- as.factor(validation$target)
+test$target <- as.factor(test$target)
+```
+
+2 GLM Model
+    2.1 Assumption
+    Since the target variable $Y_{i}$ is binary form, we assume it $ Y_{i} \sim Binomial(1,\pi(X_{i}))$
+    
+    2.2 Variable Selection
+```{r}
+fit.full = glm(target~., family = binomial(link = "logit"), data = train_set)
+as_flextable(fit.full)
+# Didn't Discovered Multicollinearility
+vif.full = as.data.frame(vif(fit.full))
+vif.full
+
+fit.step_AIC = step(fit.full, k = 2);
+fit.step_BIC = step(fit.full, k = log(nrow(heart_latent)));
+
+as_flextable(fit.step_AIC)
+as_flextable(fit.step_BIC)
+
+fit.final = fit.step_BIC
+```
+From the p-values for the regression coefficients (last column), you can see that age, chol, fbs, restecg may not make a significant contribution to the equation. 
+
+
+Anova table
+```{r}
+anova = anova(fit.full, fit.step_BIC,test = "Chisq")
+flextable(data = anova)
+```
+
+So from the anova tabel it suggest the final model is better, because the p-value>0.05 so we cannot reject the null that the final model is as useful as the full model.
+
+    2.3 Feature Importance? / Coefficient analysis
+    ```{r}
+coef = as.data.frame(exp(coef(fit.final)))
+names(coef) = "Coefficient"
+coef
+```
+The coeficient
+
+
+
+```{r}
+# Confidence Interval of coefficients
+coef = exp(confint(fit.final))
+as.data.frame(exp(confint(fit.final)))
+```
+    
+    2.4 Model Dagonise
+      2.4.1 Residuals
+```{r}
+# residual analysis
+plot(x=predict(fit.final, type="response"),y = residuals(fit.final), xlab = "Y", ylab = "
+     Deviance")
+abline(h = 0)
+chi.sim = rchisq(length(residuals(fit.final)), df= fit.final$df.residual)
+qqplot(qchisq(ppoints(297),df = fit.final$df.residual),residuals(fit.final), xlab = "Theoretical chi-square", ylab = "Deviance")
+qqline(residuals(fit.final), datax = FALSE, distribution =function(p) qchisq(p,fit.final$df.residual), probs = c(0.25, 0.75), qtype = 7, col = "red")
+
+
+```
+From the qq-Plot we can see the residual doesn't follow gaussian distribution. And the Shapiro-Walker test statistics for testing normality equals to 0.977 with p-value equal to 0.000089, hence we can reject the normality hypothesis at the significient levels, which coincide with the qq-plot result.
+
+```{r}
+# Influencial points
+influencePlot(fit.final)
+index.influ = c(91,134,178,214,257)
+heart_latent[index.influ,]
+```
+      2.4.2 multicollinearity
+```{r}
+library(mctest)
+#cor = as.data.frame(round(cor(train_set),digits = 3))
+#(cor)
+library(ggcorrplot)
+cor <- cor(train_set[,-9])
+ggcorrplot(cor,lab = F)
+
+vif = as.data.frame(vif(fit.final))
+vif
+```
+
+  Confussion matrix
+Validation
+```{r}
+# confussion matrix
+library("caret")
+true = as.factor(validation$target)
+pred = as.numeric(predict(fit.final,type = "response", validation)>0.5)
+pred = as.factor(pred)
+levels(pred) = levels(heart_latent$target)
+confusion_matrix = confusionMatrix(data = pred, reference = true)
+confusion_matrix
+
+```
+Test confussion matrix
+```{r}
+library("caret")
+true = as.factor(test$target)
+pred = as.numeric(predict(fit.final,type = "response", test)>0.5)
+pred = as.factor(pred)
+levels(pred) = levels(heart_latent$target)
+confusion_matrix = confusionMatrix(data = pred, reference = true)
+confusion_matrix
+
+```
+
+
+
+  logistic ROC
+```{r}
+library(ROCR)
+library(pROC)
+
+#### AIC
+
+probfull <- predict(fit.final, newdata = test, type = "response")
+predfull <- prediction(probfull, test$target)
+AUC_full <- performance(predfull, "auc")@y.values[[1]]
+plot(performance(predfull, "tpr", "fpr"), colorize = T, lwd = 3, main = "ROC Curves of GLM")
+
+fitsex <- glm(target ~ sex, data = train_set, family = binomial())
+probsex <- predict(fitsex, newdata = test, type = "response")
+predsex <- prediction(probsex, test$target)
+AUC_sex <- performance(predsex, "auc")@y.values[[1]]
+plot(performance(predsex, "tpr", "fpr"), colorize = T, lwd = 3, main = "ROC Curves")
+
+fittrestbps <- glm(target ~ trestbps, data = train_set, family = binomial())
+probtrestbps <- predict(fittrestbps, newdata = test, type = "response")
+predtrestbps <- prediction(probtrestbps, test$target)
+AUC_trestbps <- performance(predtrestbps, "auc")@y.values[[1]]
+plot(performance(predtrestbps, "tpr", "fpr"), add = TRUE, colorize = T, lwd = 3, main = "ROC Curves")
+
+
+fitcp3 <- glm(target ~ cp3, data = train_set, family = binomial())
+probcp3 <- predict(fitcp3, newdata = test, type = "response")
+predcp3 <- prediction(probcp3, test$target)
+AUC_cp3 <- performance(predcp3, "auc")@y.values[[1]]
+plot(performance(predcp3, "tpr", "fpr"), add = TRUE, colorize = T, lwd = 3, main = "ROC Curves")
+
+fitca3 <- glm(target ~ ca3, data = train_set, family = binomial())
+probca3 <- predict(fitca3, newdata = test, type = "response")
+predca3 <- prediction(probca3, test$target)
+AUC_ca3 <- performance(predca3, "auc")@y.values[[1]]
+plot(performance(predca3, "tpr", "fpr"), add = TRUE, colorize = T, lwd = 3, main = "ROC Curves")
+
+fitthalach <- glm(target ~ thalach, data = train_set, family = binomial())
+probthalach <- predict(fitthalach, newdata = test, type = "response")
+predthalach <- prediction(probthalach, test$target)
+AUC_thalach <- performance(predthalach, "auc")@y.values[[1]]
+plot(performance(predthalach, "tpr", "fpr"), add = TRUE, colorize = T, lwd = 3, main = "ROC Curves")
+
+fitthal2 <- glm(target ~ thal2, data = train_set, family = binomial())
+probthal2 <- predict(fitthal2, newdata = test, type = "response")
+predthal2 <- prediction(probthal2, test$target)
+AUC_thal2 <- performance(predthal2, "auc")@y.values[[1]]
+plot(performance(predthal2, "tpr", "fpr"), add = TRUE, colorize = T, lwd = 3, main = "ROC Curves")
+
+fitca1 <- glm(target ~ ca1, data = train_set, family = binomial())
+probca1 <- predict(fitca1, newdata = test, type = "response")
+predca1 <- prediction(probca1, test$target)
+AUC_ca1 <- performance(predca1, "auc")@y.values[[1]]
+plot(performance(predca1, "tpr", "fpr"), add = TRUE, colorize = T, lwd = 3, main = "ROC Curves")
+
+fitca2 <- glm(target ~ ca2, data = train_set, family = binomial())
+probca2 <- predict(fitca2, newdata = test, type = "response")
+predca2 <- prediction(probca2, test$target)
+AUC_ca2 <- performance(predca2, "auc")@y.values[[1]]
+plot(performance(predca2, "tpr", "fpr"), add = TRUE, colorize = T, lwd = 3, main = "ROC Curves")
+
+cat("AUC of Logistic:",AUC_full)
+
+
+
+AUC_ALL <- data.frame(x1="thal2", x2=AUC_thal2)
+row<- c("cp3", AUC_cp3)
+AUC_ALL <- rbind(AUC_ALL, row)
+row<- c("thalach", AUC_thalach)
+AUC_ALL <- rbind(AUC_ALL, row)
+row<- c("sex", AUC_sex)
+AUC_ALL <- rbind(AUC_ALL, row)
+row<- c("ca2", AUC_ca2)
+AUC_ALL <- rbind(AUC_ALL, row)
+row<- c("trestbps", AUC_trestbps)
+AUC_ALL <- rbind(AUC_ALL, row)
+row<- c("ca3", AUC_ca3)
+AUC_ALL <- rbind(AUC_ALL, row)
+row<- c("ca1", AUC_ca1)
+AUC_ALL <- rbind(AUC_ALL, row)
+
+AUC_ALL
+
+```
+3 Mechine Learning Model
+  3.1 LDA( Linear Discrimination Analysis)
+```{r}
+
+Ctrl <- trainControl(summaryFunction=twoClassSummary,
+                     classProbs=TRUE)
+lda_fit <- train(target ~ ., method = "lda", data = train_set, preProc = c("center","scale"),trControl=Ctrl,metric = "ROC")
+
+lda_fit
+#Best Tune
+res <- lda_fit$results
+res
+#importance
+varImp(lda_fit)
+
+```
+Diagnosis
+```{r}
+# LDA
+lda_predict <- predict(lda_fit, validation)
+lda_results <- confusionMatrix(lda_predict, validation$target)
+lda_results
+```
+
+  3.2 KNN Classifer
+```{r}
+ctrl <- trainControl(summaryFunction=twoClassSummary,method = "cv", verboseIter = FALSE, number = 5, classProbs = T)
+knnFit <- train(target ~ ., data = train_set, method = "knn", 
+                preProcess = c("center","scale"),
+                trControl = ctrl , tuneGrid = expand.grid(k =
+                seq(1, 20, 2)), metric = "ROC")
+# Best Tune
+knnFit$bestTune
+plot(knnFit)
+res <- knnFit$results
+res
+
+# Importance
+varImp(knnFit)
+```
+  
+  3.3 Random Forest
+```{r}
+
+set.seed(2077)
+control<- trainControl(summaryFunction=twoClassSummary,method = "cv", number = 5, verboseIter = FALSE, classProbs = T)
+grid <-data.frame(mtry = seq(1, 10, 2))
+tic(msg= " Total time for rf :: ")
+rf_fit <- train(target ~ ., method = "rf", data = train_set, ntree = 20, trControl = control,
+                  tuneGrid = grid, metric = "ROC")
+# Best Tune
+rf_fit$bestTune
+plot(rf_fit)
+res <- rf_fit$results
+res
+
+# Importance
+varImp(rf_fit)
+
+
+
+```
+
+3.4 Neral Network
+```{r}
+library(neuralnet)
+library(caret)
+library(magrittr)
+library(dplyr)
+
+set.seed(3)
+heart_latent$desease_yes =
+  heart_latent$target =="target.1"
+heart_latent$desease_no = heart_latent$target =="target"
+
+train_set$desease_yes =
+  train_set$target =="target.1"
+train_set$desease_no = train_set$target =="target"
+
+test$desease_yes =
+  test$target =="target.1"
+test$desease_no = test$target =="target"
+
+network = neuralnet(desease_no+desease_yes ~ age + sex + trestbps + chol + fbs + thalach + exang + 
+    oldpeak + cp1 + cp2 + cp3 + restecg1 + restecg2 + slope1 + 
+    slope2 + ca1 + ca2 + ca3 + thal1 + thal2,data = train_set, hidden = 3)
+
+plot(network)
+```
+
+Network Analysis
+```{r}
+#confussion matrix
+net.predict = neuralnet::compute(network, test)$net.result
+net.prediction = c("no desease","has desease")[apply(net.predict, 1, which.max)]
+# net.prediction
+predict.table = table(test$target, net.prediction, dnn = c("Actual","Predicted"))
+predict.table
+```
+
+```{r}
+netResult <- function(table){
+  TP = table[2];FP = table[4]; FN = table[1];TN = table[3]
+  sensitivity = (TP)/(TP + FN)
+  accuracy = (TP+TN)/(TP + FP + FN + TN)
+  precision = (TP)/(TP + FP)
+  specificity = (TN)/(TN + FP)
+  result = list(accuracy = accuracy,sensitivity = sensitivity, specificity = specificity)
+  return(result)
+}
+netResult(predict.table)
+```
+
+Model selection:
+1. Confussion Matrix
+```{r}
+# LDA
+lda_predict <- predict(lda_fit, test)
+lda_results <- confusionMatrix(lda_predict, test$target)
+lda_results
+#KNN
+knnPredict <- predict(knnFit,newdata = test )
+knn_results <- confusionMatrix(knnPredict, test$target )
+knn_results
+#Random Forest
+rf_predict <- predict(rf_fit, newdata = test)
+rf_results <- confusionMatrix(rf_predict, test$target)
+rf_results
+
+```
+
+
+Model selection:
+  2.ROC
+```{r}
+library(pROC)                  # plot the ROC curve
+library(xgboost)      # Extreme Gradient Boosting
+# lda
+lda.probs = predict(lda_fit,test, type = "prob")
+lda.ROC = roc(predictor=lda.probs$target, 
+              response = test$target, 
+              levels = rev(levels(test$target)),
+              )
+lda.ROC$auc
+#Area under the curve: 0.8731
+plot(lda.ROC,main="GBM ROC",col = "Orange")
+
+#KNN
+knn.probs = predict(knnFit,test, type = "prob")
+knn.ROC = roc(predictor=knn.probs$target, 
+              response = test$target, 
+              levels = rev(levels(test$target)))
+knn.ROC$auc
+#Area under the curve: 0.8731
+plot(knn.ROC,main="KNN ROC",col = "Blue",add = T)
+
+#Randome Forest
+rf.probs = predict(rf_fit,test, type = "prob")
+rf.ROC = roc(predictor=rf.probs$target, 
+              response = test$target, 
+              levels = rev(levels(test$target)))
+rf.ROC$auc
+plot(rf.ROC,main="Randome Forest ROC",col = "Green", add = T)
+
+#Area under the curve: 0.8731
+
+legend("bottomright", lty = 1,col = c("Orange","Blue","Green"), legend = c("LDA","KNN","Random Forest"))
+```
+
+# import dataset
+```{r}
+library(readr)
+heart <- read_csv("heart_cleveland_upload.csv")
+heart_trans <- read_csv("heart_cleveland_upload.csv")
+```
+
+```{r}
+library(ggcorrplot)
+cor_heart <- cor(heart_trans[,1:14])
+cor_heart
+ggcorrplot(cor_heart,lab = F)
+```
+
+# transition
+```{r}
+ library(dbplyr)
+ library(dplyr)
+ library(plyr)
+heart_trans <- heart_trans %>% 
+  mutate(sex = if_else(sex == 1, "1-MALE", "0-FEMALE"),
+         fbs = if_else(fbs == 1, ">120", "<=120"),
+         exang = if_else(exang == 1, "YES", "NO"),
+         cp = if_else(cp == 0, "0-typical angina",
+                      if_else(cp == 1, "1-atypical angina", if_else(cp == 2, "2-non-anginal pain", "3-asymptomatic"))),
+         restecg = if_else(restecg == 0, "0-NORMAL",
+                           if_else(restecg == 1, "1-ABNORMALITY", "2-PROBABLE OR DEFINITE")),
+         slope = if_else(slope == 0, "0-upsloping",
+                           if_else(slope == 1, "1-flat", "2-downsloping")),
+         ca = as.factor(ca),
+         thal  = if_else(ca == 0, "0-normal",
+                           if_else(ca == 1, "1-flxed defect", "2-reversable defect", "3")),
+    
+         condition = if_else(condition == 1, "YES", "NO")
+         ) %>% 
+  mutate_if(is.character, as.factor) %>% 
+  dplyr::select(condition, sex, fbs, exang, cp, restecg, slope, ca, thal, everything())
+```
+
+# the number of the condition
+```{r}
+attach(heart_trans)
+ library(ggplot2)
+ggplot(heart_trans, aes(x=condition, fill=condition)) + 
+  geom_bar() +
+  xlab("Heart Disease") +
+  ylab("Count")
+```
+
+# histgram age & condition
+```{r}
+  ggplot(heart_trans, aes(x=age,fill=condition))+
+  geom_histogram()+
+  scale_x_discrete() +
+#    scale_fill_brewer(palette = "Blues") +
+  xlab("Age") + 
+  ylab("Number")+
+  guides(fill = guide_legend(title = "Condition"))
+
+  ggplot(heart_trans, aes(x=trestbps,fill=condition))+
+  geom_histogram()+
+  scale_x_discrete() +
+#    scale_fill_brewer(palette = "Blues") +
+  xlab("trestbps") + 
+  ylab("Number")+
+  guides(fill = guide_legend(title = "Condition"))
+  
+    ggplot(heart_trans, aes(x=thalach,fill=condition))+
+  geom_histogram()+
+  scale_x_discrete() +
+#    scale_fill_brewer(palette = "Blues") +
+  xlab("thalach") + 
+  ylab("Number")+
+  guides(fill = guide_legend(title = "Condition"))
+```
+
+```{r}
+  ggplot(heart_trans, aes(x=slope,y=oldpeak,color=condition))+
+  geom_point(alpha=0.7)+xlab("oldpeak") +
+  ylab("slope")+
+  guides(fill = guide_legend(title = ""))
+```
+
+```{r}
+heart_trans %>%
+  ggplot(aes(x=condition,y=chol))+
+  geom_boxplot(fill="#D55E00")+
+  xlab("Condition")+
+  ylab("Chol")
+
+heart_trans %>%
+  ggplot(aes(x=condition,y=thalach))+
+  geom_boxplot(fill="#D55E00")+
+  xlab("Condition")+
+  ylab("thalach")
+
+heart_trans %>%
+  ggplot(aes(x=condition,y=oldpeak))+
+  geom_boxplot(fill="#D55E00")+
+  xlab("Condition")+
+  ylab("oldpeak")
+```
+
+```{r}
+library(lmPerm)
+library(multcomp)
+set.seed(2077)
+
+fit=aovp(condition~chol, data = heart, perm="Prob")
+summary(fit)
+
+fit=aovp(condition~thalach, data = heart, perm="Prob")
+summary(fit)
+
+fit=aovp(condition~oldpeak, data = heart, perm="Prob")
+summary(fit)
+```
+
+
+```{r}
+ggplot() + geom_bar(data = heart_trans,aes(x = thal, fill=factor(condition)), position="dodge")
+
+ggplot() + geom_bar(data = heart_trans,aes(x = cp, fill=factor(condition)), position="dodge")
+
+ggplot() + geom_bar(data = heart_trans,aes(x = ca, fill=factor(condition)), position="dodge")
+
+ggplot() + geom_bar(data = heart_trans,aes(x = sex, fill=factor(condition)), position="dodge")
+
+ggplot() + geom_bar(data = heart_trans,aes(x = fbs, fill=factor(condition)), position="dodge")
+
+ggplot() + geom_bar(data = heart_trans,aes(x = restecg, fill=factor(condition)), position="dodge")
+
+ggplot() + geom_bar(data = heart_trans,aes(x = exang, fill=factor(condition)), position="dodge")
+
+ggplot() + geom_bar(data = heart_trans,aes(x = slope, fill=factor(condition)), position="dodge")
+```
+
+```{r}
+ggplot(heart_trans, aes(x = age, y = thalach, color = condition, shape = condition))+
+  geom_point()+
+  geom_smooth(se = FALSE)
+```
+
+
+```{r}
+library(gridExtra)
+data1 <- heart_trans[(heart_trans$condition == "YES" & heart_trans$exang == "NO"), c("cp")]
+data2 <- heart_trans[(heart_trans$condition == "YES" & heart_trans$exang == "YES"), c("cp")]
+data3 <- heart_trans[(heart_trans$condition == "NO" & heart_trans$exang == "NO"), c("cp")]
+data4 <- heart_trans[(heart_trans$condition == "NO" & heart_trans$exang == "YES"), c("cp")]
+grid.arrange(
+  ggplot() + geom_bar(data = data1,aes(x = cp), fill = c("#6495ED","#FFA500","#FF4500", "red3")) + 
+    ggtitle("People with Heart Disease and exang = 0") + ylim(0,70)+ theme(axis.text.x = element_text(angle = 45, hjust = 1)) + theme(plot.title = element_text(hjust = 0.5,size = 10, face = "bold")),
+ggplot() + geom_bar(data = data2,aes(x = cp), fill = c("#6495ED","#FFA500","#FF4500", "red3")) + ggtitle("People with Heart Disease and exang = 1") + ylim(0,70)+ theme(axis.text.x = element_text(angle = 45, hjust = 1))+ theme(plot.title = element_text(hjust = 0.5,size = 10, face = "bold")),
+ncol = 2)
+
+grid.arrange(
+ggplot() + geom_bar(data = data3,aes(x = cp), fill = c("#6495ED","#FFA500","#FF4500", "red3")) + ggtitle("People without Heart Disease and exang = 0") + ylim(0,70)+ theme(axis.text.x = element_text(angle = 45, hjust = 1))+ theme(plot.title = element_text(hjust = 0.5,size = 10, face = "bold")),
+ggplot() + geom_bar(data = data4,aes(x = cp) , fill = c("#6495ED","#FFA500","#FF4500", "red3")) + ggtitle("People without Heart Disease and exang = 1") + ylim(0,70)+ theme(axis.text.x = element_text(angle = 45, hjust = 1))+ theme(plot.title = element_text(hjust = 0.5,size = 10, face = "bold")),
+ncol = 2)
+```
+
+
+Prediction
+```{r}
+heartPre = function(age,sex){
+  health = data.frame(trestbps = rep(140,4),sex = rep(sex,4),age = rep(age,4), ca1 = 0, ca2= 0,ca3 = 0, thal2  =rep(0,4), thalach = rep(220-age,4), cp3 = 1)
+
+  health$ca1 = c(0,1,0,0)
+  health$ca2 = c(0,0,1,0)
+  health$ca3 = c(0,0,0,1)
+  
+  predict_res = predict(fit.final,type = "response", health)
+  
+  cat("Hi dear, you have a chance between",min(predict_res)*100,"% and", max(predict_res)*100,"% getting a heart disease.")
+}
+
+ 
+heartPre(age = 65, sex = 1)
+heartPre(age = 107, sex = 0)
+
+heartPre(age = 20, sex = 1)
+heartPre(age = 20, sex = 0)
+```
+

@@ -1,0 +1,17 @@
+---
+title: "MA308PROJ_PCA"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# import dataset
+```{r}
+library(readr)
+heart <- read_csv("heart_cleveland_upload.csv")
+```
+
+#  PCA
+all have the same direction but we have some factors which are parallel so maybe it's not a good choice.

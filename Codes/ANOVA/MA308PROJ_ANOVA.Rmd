@@ -1,0 +1,117 @@
+---
+title: "MA308PROJ_ANOVA"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# import dataset
+```{r}
+library(readr)
+heart <- read_csv("heart_cleveland_upload.csv")
+attach(heart)
+```
+I was wondering the sample size of each group differs a lot, so can ANOVA test still works?
+
+
+Questions:
+1.parallel factor we can see the condition's difference between the label; but for continuous number, we should see the CI and mean from the condition's aspect.
+2.If we use One-way ANCOVA, does the importance of oldpeak and slope equal?
+
+#  one-way ANOVA for CP
+```{r}
+library(gplots)
+library(HH)
+library(multcomp)
+library(car)
+#table(cp)
+aggregate(condition, by=list(cp),FUN=mean)
+aggregate(condition, by=list(cp),FUN=sd)
+fitcp <- aov(condition ~ cp)
+summary(fitcp)
+plotmeans(condition ~ cp)
+#TukeyHSD(fitcp)
+bartlett.test(condition ~ cp)
+```
+
+
+#  one-way ANOVA for slope
+```{r}
+#table(slope)
+aggregate(condition, by=list(slope),FUN=mean)
+aggregate(condition, by=list(slope),FUN=sd)
+fitslope <- aov(condition ~ slope)
+summary(fitslope)
+plotmeans(condition ~ slope)
+
+```
+
+#  one-way ANOVA for thal
+```{r}
+#table(thal)
+aggregate(condition, by=list(thal),FUN=mean)
+aggregate(condition, by=list(thal),FUN=sd)
+fitthal <- aov(condition ~ thal)
+summary(fitthal)
+plotmeans(condition ~ thal)
+
+```
+
+#  one-way ANOVA for ca
+```{r}
+#table(ca)
+aggregate(condition, by=list(ca),FUN=mean)
+aggregate(condition, by=list(ca),FUN=sd)
+fitca <- aov(condition ~ ca)
+summary(fitca)
+plotmeans(condition ~ ca)
+
+```
+
+#  one-way ANOVA for sex
+```{r}
+#table(sex)
+aggregate(sex, by=list(condition),FUN=mean)
+aggregate(sex, by=list(condition),FUN=sd)
+fitsex <- aov(sex ~ condition)
+summary(fitsex)
+plotmeans(sex ~ condition)
+
+```
+
+#  one-way ANOVA for trestbps
+```{r}
+#table(trestbps)
+aggregate(trestbps, by=list(condition),FUN=mean)
+aggregate(trestbps, by=list(condition),FUN=sd)
+fittrestbps <- aov(trestbps ~ condition)
+summary(fittrestbps)
+plotmeans(trestbps ~ condition)
+
+```
+
+#  one-way ANOVA for oldpeak
+```{r}
+#table(oldpeak)
+aggregate(oldpeak, by=list(condition),FUN=mean)
+aggregate(oldpeak, by=list(condition),FUN=sd)
+fitoldpeak <- aov(oldpeak ~ condition)
+summary(fitoldpeak)
+plotmeans(oldpeak ~ condition)
+```
+
+#  One-way ANCOVA for oldpeak and slope
+```{r}
+slope <- as.factor(slope)
+fito_s <- aov(condition ~ oldpeak + slope)
+summary(fito_s)
+```
+
+but! All anova should use the assumption as normal distribution, but the actually we can not assume...
+Then let's try another one called wilcoxon signed-rank test
+but actually... there occurs some questions.
+(1. we count one mean and test for another; 2.not paired)
+So let's turn to Mann-Whitney test
+(but the sample is not large)
